@@ -2,4 +2,8 @@ server:
     port: 8080
 app:
     service-principal: HTTP/neo.example.org@EXAMPLE.ORG
+    # set empty / comment out when you want to use username/password initialization
     keytab-location: /tmp/tomcat.keytab
+
+    kerberos-username: neo_account@EXAMPLE.ORG
+    kerberos-password: neo_password

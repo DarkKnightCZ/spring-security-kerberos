@@ -26,8 +26,14 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 	@Value("${app.service-principal}")
 	private String servicePrincipal;
 
-	@Value("${app.keytab-location}")
+	@Value("${app.keytab-location:}")
 	private String keytabLocation;
+
+	@Value("${app.kerberos-username:}")
+	private String kerberosUsername;
+
+	@Value("${app.kerberos-password:}")
+	private String kerberosPassword;
 
 	@Override
 	protected void configure(HttpSecurity http) throws Exception {
@@ -92,7 +98,12 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 	public SunJaasKerberosTicketValidator sunJaasKerberosTicketValidator() {
 		SunJaasKerberosTicketValidator ticketValidator = new SunJaasKerberosTicketValidator();
 		ticketValidator.setServicePrincipal(servicePrincipal);
-		ticketValidator.setKeyTabLocation(new FileSystemResource(keytabLocation));
+		if (!this.keytabLocation.isEmpty()) {
+		    ticketValidator.setKeyTabLocation(new FileSystemResource(keytabLocation));
+		} else {
+		    ticketValidator.setUsername(this.kerberosUsername);
+		    ticketValidator.setPassword(this.kerberosPassword);
+		}
 		ticketValidator.setDebug(true);
 		return ticketValidator;
 	}
