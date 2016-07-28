@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import javax.security.auth.Subject;
+import javax.security.auth.callback.CallbackHandler;
 import javax.security.auth.kerberos.KerberosPrincipal;
 import javax.security.auth.login.AppConfigurationEntry;
 import javax.security.auth.login.Configuration;
@@ -51,6 +52,7 @@ import org.springframework.util.Assert;
  *
  * @author Mike Wiesner
  * @author Jeremy Stone
+ * @author Lukas Raska
  * @since 1.0
  */
 public class SunJaasKerberosTicketValidator implements KerberosTicketValidator, InitializingBean {
@@ -58,6 +60,8 @@ public class SunJaasKerberosTicketValidator implements KerberosTicketValidator, 
     private String servicePrincipal;
     private Resource keyTabLocation;
     private Subject serviceSubject;
+    private String username;
+    private String password;
     private boolean holdOnToGSSContext;
     private boolean debug = false;
     private static final Log LOG = LogFactory.getLog(SunJaasKerberosTicketValidator.class);
@@ -75,25 +79,61 @@ public class SunJaasKerberosTicketValidator implements KerberosTicketValidator, 
     @Override
     public void afterPropertiesSet() throws Exception {
         Assert.notNull(this.servicePrincipal, "servicePrincipal must be specified");
-        Assert.notNull(this.keyTabLocation, "keyTab must be specified");
-        if (keyTabLocation instanceof ClassPathResource) {
-			LOG.warn("Your keytab is in the classpath. This file needs special protection and shouldn't be in the classpath. JAAS may also not be able to load this file from classpath.");
-        }
-        String keyTabLocationAsString = this.keyTabLocation.getURL().toExternalForm();
-        // We need to remove the file prefix (if there is one), as it is not supported in Java 7 anymore.
-        // As Java 6 accepts it with and without the prefix, we don't need to check for Java 7
-        if (keyTabLocationAsString.startsWith("file:"))
-        {
-        	keyTabLocationAsString = keyTabLocationAsString.substring(5);
-        }
-        LoginConfig loginConfig = new LoginConfig(keyTabLocationAsString, this.servicePrincipal,
-                this.debug);
+
+        // populate KerberosPrincipal for future use
         Set<Principal> princ = new HashSet<Principal>(1);
         princ.add(new KerberosPrincipal(this.servicePrincipal));
         Subject sub = new Subject(false, princ, new HashSet<Object>(), new HashSet<Object>());
-        LoginContext lc = new LoginContext("", sub, null, loginConfig);
+        LoginContext lc = null;
+
+        // Check if we should use keytab first
+        if (this.keyTabLocation != null) {
+            if (keyTabLocation instanceof ClassPathResource) {
+                LOG.warn("Your keytab is in the classpath. This file needs special protection and shouldn't be in the classpath. JAAS may also not be able to load this file from classpath.");
+            }
+            String keyTabLocationAsString = this.keyTabLocation.getURL().toExternalForm();
+            // We need to remove the file prefix (if there is one), as it is not supported in Java 7 anymore.
+            // As Java 6 accepts it with and without the prefix, we don't need to check for Java 7
+            if (keyTabLocationAsString.startsWith("file:"))
+            {
+                keyTabLocationAsString = keyTabLocationAsString.substring(5);
+            }
+            LoginConfig loginConfig = new LoginConfig(keyTabLocationAsString, this.servicePrincipal,
+                    this.debug);
+            lc = new LoginContext("", sub, null, loginConfig);
+        } else {
+            // if keytab is not specified, username and password must be provided
+            Assert.notNull(this.username, "Username must be specified when not using keytab");
+            Assert.notNull(this.password, "Password must be specified when not using keytab");
+
+            // use provided username and password to create proper CallbackHandler
+            final CallbackHandler handler = new KerberosUserCallbackHandler(this.username, this.password);
+
+            // create custom LoginConfig with null keytab since configuration is required and JAAS Login Configuration file is not used
+            LoginConfig loginConfig = new LoginConfig(null, this.servicePrincipal, this.debug);
+            lc = new LoginContext("", sub, handler, loginConfig);
+        }
+
         lc.login();
         this.serviceSubject = lc.getSubject();
+    }
+
+    /**
+     * Username of AD service account with proper servicePrincipalName. Used when keytab is not specified.
+     *
+     * @param username valid AD user
+     */
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    /**
+     * Password of AD service account with proper servicePrincipalName. Used when keytab is not specified.
+     *
+     * @param password valid password for provided username
+     */
+    public void setPassword(String password) {
+        this.password = password;
     }
 
     /**
@@ -199,11 +239,17 @@ public class SunJaasKerberosTicketValidator implements KerberosTicketValidator, 
         @Override
         public AppConfigurationEntry[] getAppConfigurationEntry(String name) {
             HashMap<String, String> options = new HashMap<String, String>();
-            options.put("useKeyTab", "true");
-            options.put("keyTab", this.keyTabLocation);
+
+            // only set these properties if keytab is used
+            // doNotPrompt has to be false when none of useTicketCache, useKeyTab, tryFirstPass or useFirstPass are true
+            if (this.keyTabLocation != null) {
+                options.put("useKeyTab", "true");
+                options.put("keyTab", this.keyTabLocation);
+                options.put("doNotPrompt", "true");
+            }
+
             options.put("principal", this.servicePrincipalName);
             options.put("storeKey", "true");
-            options.put("doNotPrompt", "true");
             if (this.debug) {
                 options.put("debug", "true");
             }

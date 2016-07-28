@@ -15,14 +15,8 @@
  */
 package org.springframework.security.kerberos.authentication.sun;
 
-import java.io.IOException;
 import java.util.HashMap;
 
-import javax.security.auth.callback.Callback;
-import javax.security.auth.callback.CallbackHandler;
-import javax.security.auth.callback.NameCallback;
-import javax.security.auth.callback.PasswordCallback;
-import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.login.AppConfigurationEntry;
 import javax.security.auth.login.Configuration;
 import javax.security.auth.login.LoginContext;
@@ -54,7 +48,7 @@ public class SunJaasKerberosClient implements KerberosClient {
         String validatedUsername;
 
         try {
-            LoginContext loginContext = new LoginContext("", null, new KerberosClientCallbackHandler(username, password),
+            LoginContext loginContext = new LoginContext("", null, new KerberosUserCallbackHandler(username, password),
                     new LoginConfig(this.debug));
             loginContext.login();
             if (LOG.isDebugEnabled()) {
@@ -92,34 +86,5 @@ public class SunJaasKerberosClient implements KerberosClient {
             return new AppConfigurationEntry[] { new AppConfigurationEntry("com.sun.security.auth.module.Krb5LoginModule",
                     AppConfigurationEntry.LoginModuleControlFlag.REQUIRED, options), };
         }
-
     }
-
-    private static class KerberosClientCallbackHandler implements CallbackHandler {
-        private String username;
-        private String password;
-
-        public KerberosClientCallbackHandler(String username, String password) {
-            this.username = username;
-            this.password = password;
-        }
-
-        public void handle(Callback[] callbacks) throws IOException, UnsupportedCallbackException {
-            for (Callback callback : callbacks) {
-                if (callback instanceof NameCallback) {
-                    NameCallback ncb = (NameCallback) callback;
-                    ncb.setName(username);
-                } else if (callback instanceof PasswordCallback) {
-                    PasswordCallback pwcb = (PasswordCallback) callback;
-                    pwcb.setPassword(password.toCharArray());
-                } else {
-                    throw new UnsupportedCallbackException(callback, "We got a " + callback.getClass().getCanonicalName()
-                            + ", but only NameCallback and PasswordCallback is supported");
-                }
-            }
-
-        }
-
-    }
-
 }
